@@ -41,63 +41,41 @@ jobs:
         run: |
           unzip -q FF_Live_Mic_YouTube_Phase08_1_Mobile_Build_Ready.zip -d extracted
 
-      - name: Set Java and Kotlin JVM Target to 17
+      - name: Fix Kotlin and JVM Versions
         run: |
           cd extracted/FF_Live_Mic_YouTube_Phase07
 
           python3 - <<'PY'
           from pathlib import Path
 
-          kts = Path("app/build.gradle.kts")
-          groovy = Path("app/build.gradle")
+          root = Path("build.gradle.kts")
+          if not root.exists():
+              raise SystemExit("Root build.gradle.kts not found")
 
-          if kts.exists():
-              p = kts
-              config = """
-          android {
+          text = root.read_text()
+          if 'version "2.0.21"' not in text:
+              raise SystemExit("Expected Kotlin version 2.0.21 not found")
+          root.write_text(text.replace('version "2.0.21"', 'version "2.3.21"'))
+
+          app = Path("app/build.gradle.kts")
+          if not app.exists():
+              raise SystemExit("app/build.gradle.kts not found")
+
+          text = app.read_text()
+          if "compileOptions" not in text:
+              text = text.replace(
+                  "android {",
+                  """android {
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
               kotlinOptions {
                   jvmTarget = "17"
-              }
-          }
-          """
-          elif groovy.exists():
-              p = groovy
-              config = """
-          android {
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
-          }
-          """
-          else:
-              raise SystemExit("ERROR: app/build.gradle or app/build.gradle.kts not found")
-
-          content = p.read_text()
-          if "sourceCompatibility" not in content:
-              p.write_text(content + "\n" + config + "\n")
-          else:
-              content = content.replace(
-                  "JavaVersion.VERSION_1_8",
-                  "JavaVersion.VERSION_17"
-              ).replace(
-                  "VERSION_1_8",
-                  "VERSION_17"
-              ).replace(
-                  'jvmTarget = "1.8"',
-                  'jvmTarget = "17"'
-              ).replace(
-                  "jvmTarget = '1.8'",
-                  "jvmTarget = '17'"
+              }""",
+                  1
               )
-              p.write_text(content)
+          app.write_text(text)
           PY
 
       - name: Build Android APK
