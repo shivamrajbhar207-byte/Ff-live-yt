@@ -1,130 +1,32 @@
+from pathlib import Path
 
-name: Build Android APK
+source = Path(
+    "app/src/main/java/com/fflivemic/app/YouTubeRtmpConfig.kt"
+)
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
+if not source.exists():
+    raise SystemExit("YouTubeRtmpConfig.kt not found")
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+lines = source.read_text().splitlines()
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+fixed = False
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+for i, line in enumerate(lines):
+    if "require(!key.contains(" in line:
+        lines[i] = r"""        require(!key.contains('/') && !key.contains('\n') && !key.contains('\r')) {"""
+        fixed = True
+        break
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          accept-android-sdk-licenses: true
-          packages: platform-tools
+if not fixed:
+    raise SystemExit("Expected RTMP validation line not found")
 
-      - name: Accept Android Licenses
-        run: yes | sdkmanager --licenses
+source.write_text("\n".join(lines) + "\n")
 
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+check = source.read_text()
+expected = r"""require(!key.contains('/') && !key.contains('\n') && !key.contains('\r'))"""
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+if expected not in check:
+    raise SystemExit("RTMP source verification failed")
 
-      - name: Extract Android Project
-        run: |
-          unzip -q FF_Live_Mic_YouTube_Phase08_1_Mobile_Build_Ready.zip -d extracted
+print("RTMP source fixed and verified successfully.")
 
-      - name: Fix Kotlin, Java and RTMP Source
-        run: |
-          cd extracted/FF_Live_Mic_YouTube_Phase07
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          # Update Kotlin plugin version
-          root = Path("build.gradle.kts")
-          if not root.exists():
-              raise SystemExit("Root build.gradle.kts not found")
-
-          s = root.read_text()
-          if 'version "2.0.21"' in s:
-              s = s.replace('version "2.0.21"', 'version "2.3.21"')
-          root.write_text(s)
-
-          # Configure Java and Kotlin JVM 17
-          app = Path("app/build.gradle.kts")
-          if not app.exists():
-              raise SystemExit("app/build.gradle.kts not found")
-
-          s = app.read_text()
-
-          if "sourceCompatibility" not in s:
-              s = s.replace(
-                  "android {",
-                  """android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }""",
-                  1
-              )
-
-          if "compilerOptions" not in s:
-              s += """
-
-          kotlin {
-              compilerOptions {
-                  jvmTarget.set(
-                      org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-                  )
-              }
-          }
-          """
-
-          app.write_text(s)
-
-          # Fix invalid newline and carriage-return character literals
-          source = Path(
-              "app/src/main/java/com/fflivemic/app/YouTubeRtmpConfig.kt"
-          )
-
-          if not source.exists():
-              raise SystemExit("YouTubeRtmpConfig.kt not found")
-
-          s = source.read_text()
-
-          s = s.replace(
-              "contains('\\\\\\\\n')",
-              "contains('\\\\n')"
-          )
-          s = s.replace(
-              "contains('\\\\\\\\r')",
-              "contains('\\\\r')"
-          )
-
-          if "contains('\\\\\\\\n')" in s or "contains('\\\\\\\\r')" in s:
-              raise SystemExit("RTMP escape sequence fix failed")
-
-          source.write_text(s)
-          print("Kotlin, Java and RTMP source fixes applied.")
-          PY
-
-      - name: Build Android APK
-        run: |
-          cd extracted/FF_Live_Mic_YouTube_Phase07
-          gradle --no-daemon assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: FF-Live-Mic-APK
-          path: extracted/FF_Live_Mic_YouTube_Phase07/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          
